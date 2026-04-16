@@ -10,6 +10,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 WORK_DIR="$HOME"
 
+# Use sudo if not root
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+    SUDO="sudo"
+fi
+
 echo "============================================"
 echo "  SONIC HU_D04 Training Setup"
 echo "============================================"
@@ -50,8 +56,8 @@ echo "  Python: $PYTHON_VER"
 # ---- 1. System packages ----
 echo ""
 echo "[Step 1] Installing system packages..."
-sudo apt update -qq
-sudo apt install -y -qq python3-pip python3-venv python3.12 python3.12-venv python3.12-dev \
+$SUDO apt update -qq
+$SUDO apt install -y -qq python3-pip python3-venv python3.12 python3.12-venv python3.12-dev \
     git-lfs libgl1-mesa-glx libglib2.0-0 libegl1 libsm6 libxrender1 libxext6 libice6 \
     libvulkan1 libglu1-mesa libxt6 2>/dev/null
 echo "  Done."
@@ -154,18 +160,22 @@ else
     TORCH_INDEX="https://download.pytorch.org/whl/cu124"
 fi
 
+# Install Isaac Sim + Isaac Lab (must use NVIDIA PyPI for full extensions)
+pip install "isaacsim[all,extscache]==5.1.0" --extra-index-url https://pypi.nvidia.com 2>/dev/null
+
+# Install PyTorch matching CUDA version (overrides isaacsim's pinned version)
 pip install torch torchvision --index-url "$TORCH_INDEX" 2>/dev/null
-PIP_NO_BUILD_ISOLATION=false pip install isaaclab 2>/dev/null
 
 # Fix numpy for Isaac Lab compatibility
 pip install numpy==1.26.4 pillow==11.0.0 2>/dev/null
 
 # Install gear_sonic and remaining deps
 pip install lxml open3d mujoco 2>/dev/null
+pip install tensordict vector-quantize-pytorch 2>/dev/null
 pip install -e "$WORK_DIR/GR00T-WholeBodyControl/gear_sonic/[training]" 2>/dev/null
 
 # Patch Isaac Lab: add missing quat_apply_inverse
-MATH_PY=$(find "$WORK_DIR/sonic_env" -path "*/isaaclab/utils/math.py" | head -1)
+MATH_PY=$(find "$WORK_DIR/sonic_env" -path "*/isaaclab/*/math.py" | head -1)
 if [ -n "$MATH_PY" ] && ! grep -q "quat_apply_inverse" "$MATH_PY"; then
     echo "  Patching Isaac Lab: adding quat_apply_inverse..."
     python3 "$REPO_DIR/scripts/patch_isaaclab_math.py" "$MATH_PY"

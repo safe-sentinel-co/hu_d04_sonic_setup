@@ -292,10 +292,29 @@ HU_D04's hip_pitch joints have non-cardinal axes: `(0, 0.90631, -0.42262)` and `
 ### 6. `LD_LIBRARY_PATH` for Omniverse extensions
 Isaac Sim's pip install stores shared libraries in `~/.local/share/ov/data/exts/v2/`. You must add these to `LD_LIBRARY_PATH` before running training, otherwise you get `libhdx.so: cannot open shared object file`.
 
+### 7. Isaac Sim requires `isaacsim[all,extscache]` from NVIDIA PyPI
+A bare `pip install isaacsim` installs the bootstrap package without the `SimulationApp` extension. You must install the full package with extensions:
+```bash
+pip install "isaacsim[all,extscache]==5.1.0" --extra-index-url https://pypi.nvidia.com
+```
+Without this, training fails with `TypeError: 'NoneType' object is not callable` when creating `SimulationApp`.
+
+### 8. `torch_humanoid_batch.py` assumes cardinal joint axes
+The SONIC motion library parser (`torch_humanoid_batch.py`) uses `int()` to parse MJCF joint axis values, which fails for HU_D04's oblique hip axes (e.g. `0.90631`). The setup patch changes this to `float()`. It also filters XML comments when parsing `<actuator>` children.
+
+### 9. `base_com` event references `torso_link` (G1-specific)
+The base training config hardcodes `torso_link` in the `base_com` randomization event. HU_D04 uses `waist_pitch_link` instead. The HU_D04 experiment config overrides this.
+
+### 10. `undesired_contacts` reward: `exclude_body_names` not supported
+The `undesired_contacts` reward function only accepts `sensor_cfg` and `threshold` parameters. To exclude specific bodies from contact penalties, use a negative-lookahead regex in `body_names` instead of a separate `exclude_body_names` parameter.
+
+### 11. Missing pip dependencies: `tensordict`, `vector-quantize-pytorch`
+These are required by the SONIC actor-critic modules but not listed in `gear_sonic`'s training extras. The setup script installs them explicitly.
+
 ## Architecture Notes
 
 ### Two Python Environments Required
-- **`sonic_env`** (Python 3.10): Isaac Lab, PyTorch, gear_sonic training -- used for training and PKL conversion
+- **`sonic_env`** (Python 3.10/3.11): Isaac Lab, Isaac Sim, PyTorch, gear_sonic training -- used for training and PKL conversion
 - **`soma_env`** (Python 3.12): SOMA retargeter with Newton physics, warp -- used for BVH-to-CSV retargeting only
 
 These can't be combined due to conflicting Python version and dependency requirements.
