@@ -1,0 +1,72 @@
+diff --git a/gear_sonic/envs/manager_env/modular_tracking_env_cfg.py b/gear_sonic/envs/manager_env/modular_tracking_env_cfg.py
+index 9a6f399..81c552e 100644
+--- a/gear_sonic/envs/manager_env/modular_tracking_env_cfg.py
++++ b/gear_sonic/envs/manager_env/modular_tracking_env_cfg.py
+@@ -16,7 +16,7 @@ import joblib
+ import pxr
+ 
+ from gear_sonic.envs.manager_env.mdp import terrain
+-from gear_sonic.envs.manager_env.robots import g1, h2
++from gear_sonic.envs.manager_env.robots import g1, h2, hu_d04
+ from gear_sonic.trl.utils import common
+ 
+ 
+@@ -1006,6 +1006,11 @@ class ModularTrackingEnvCfg(ManagerBasedRLEnvCfg):
+                 "action_scale": h2.H2_ACTION_SCALE,
+                 "isaaclab_to_mujoco_mapping": h2.H2_ISAACLAB_TO_MUJOCO_MAPPING,
+             },
++            "hu_d04": {
++                "robot_cfg": hu_d04.HU_D04_CFG,
++                "action_scale": hu_d04.HU_D04_ACTION_SCALE,
++                "isaaclab_to_mujoco_mapping": hu_d04.HU_D04_ISAACLAB_TO_MUJOCO_MAPPING,
++            },
+         }
+ 
+         robot_type = config["robot"].get("type", "g1")
+diff --git a/gear_sonic/envs/manager_env/robots/__init__.py b/gear_sonic/envs/manager_env/robots/__init__.py
+index dc1a8ef..86da295 100644
+--- a/gear_sonic/envs/manager_env/robots/__init__.py
++++ b/gear_sonic/envs/manager_env/robots/__init__.py
+@@ -2,3 +2,4 @@
+ # Import from gear_sonic.envs.manager_env.robots.g1 or .h2 directly for new code.
+ from gear_sonic.envs.manager_env.robots.g1 import *  # noqa: F401,F403
+ from gear_sonic.envs.manager_env.robots.h2 import *  # noqa: F401,F403
++from gear_sonic.envs.manager_env.robots.hu_d04 import *  # noqa: F401,F403
+diff --git a/gear_sonic/trl/utils/order_converter.py b/gear_sonic/trl/utils/order_converter.py
+index 078f2fc..a18a1f3 100644
+--- a/gear_sonic/trl/utils/order_converter.py
++++ b/gear_sonic/trl/utils/order_converter.py
+@@ -202,6 +202,33 @@ class H2Converter(IsaacLabMuJoCoConverter):
+     FOOT_BODY_NAMES = ["left_ankle_roll_link", "right_ankle_roll_link"]
+ 
+ 
++class HuD04Converter(IsaacLabMuJoCoConverter):
++    """HU_D04 robot joint/body order converter between IsaacLab and MuJoCo conventions."""
++
++    def __init__(self):
++        from gear_sonic.envs.manager_env.robots.hu_d04 import (
++            HU_D04_ISAACLAB_JOINTS,
++            HU_D04_ISAACLAB_TO_MUJOCO_BODY,
++            HU_D04_ISAACLAB_TO_MUJOCO_DOF,
++            HU_D04_MUJOCO_TO_ISAACLAB_BODY,
++            HU_D04_MUJOCO_TO_ISAACLAB_DOF,
++        )
++
++        self.JOINT_NAMES = HU_D04_ISAACLAB_JOINTS
++        self.DOF_MAPPINGS = {
++            ("isaaclab", "mujoco"): HU_D04_ISAACLAB_TO_MUJOCO_DOF,
++            ("mujoco", "isaaclab"): HU_D04_MUJOCO_TO_ISAACLAB_DOF,
++        }
++        self.BODY_MAPPINGS = {
++            ("isaaclab", "mujoco"): HU_D04_ISAACLAB_TO_MUJOCO_BODY,
++            ("mujoco", "isaaclab"): HU_D04_MUJOCO_TO_ISAACLAB_BODY,
++        }
++
++    # VR 3-point tracking: torso (waist_pitch_link), left wrist end, right wrist end
++    VR_3POINTS_BODY_NAMES = ["waist_pitch_link", "left_wrist_roll_link", "right_wrist_roll_link"]
++    FOOT_BODY_NAMES = ["left_ankle_roll_link", "right_ankle_roll_link"]
++
++
+ def load_qpos_from_csv(csv_path: str) -> torch.Tensor:
+     """Load qpos [T, D] from CSV."""
+     import pandas as pd

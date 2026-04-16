@@ -1,0 +1,294 @@
+diff --git a/app/bvh_to_csv_converter.py b/app/bvh_to_csv_converter.py
+index 7d61ece..fc81a7b 100644
+--- a/app/bvh_to_csv_converter.py
++++ b/app/bvh_to_csv_converter.py
+@@ -49,7 +49,7 @@ class Viewer:
+         self.playback_total_time = 0.0
+ 
+         self.retarget_source_options = ['soma']
+-        self.retarget_target_options = ['unitree_g1']
++        self.retarget_target_options = ['unitree_g1', 'limx_hu_d04']
+         self.retarget_solver_options = ['Newton']
+         self.retarget_solver_idx     = 0
+         self.retarget_target_idx     = 0
+@@ -428,6 +428,14 @@ class Viewer:
+         retarget_source = self.config['retarget_source']
+         retarget_solver = self.config['retargeter']
+         retarget_target = self.config["retarget_target"]
++
++        # Select CSV config based on target robot
++        if retarget_target == 'limx_hu_d04':
++            from soma_retargeter.assets.csv import LimXHUD04_31DOF_CSVConfig
++            csv_config = LimXHUD04_31DOF_CSVConfig()
++        else:
++            csv_config = csv_utils.UnitreeG129DOF_CSVConfig()
++
+         retarget_pipeline = None
+         if (retarget_solver == 'Newton'):
+             import soma_retargeter.pipelines.newton_pipeline as newton_pipeline
+@@ -465,7 +473,7 @@ class Viewer:
+                     csv_buffer = csv_buffers[i]
+                     dst_path = export_path / pathlib.Path(batch[i]).relative_to(import_path).with_suffix(".csv")
+                     dst_path.parent.mkdir(parents=True, exist_ok=True)
+-                    csv_utils.save_csv(dst_path, csv_buffer)
++                    csv_utils.save_csv(dst_path, csv_buffer, csv_config)
+ 
+             nb_retargeted_motions += len(batch)
+ 
+diff --git a/soma_retargeter/assets/csv.py b/soma_retargeter/assets/csv.py
+index 5afadff..7526deb 100644
+--- a/soma_retargeter/assets/csv.py
++++ b/soma_retargeter/assets/csv.py
+@@ -83,6 +83,46 @@ class UnitreeG129DOF_CSVConfig:
+         return row
+ 
+ 
++@dataclass
++class LimXHUD04_31DOF_CSVConfig:
++    name: str = "limx_hu_d04_31dof"
++    # MuJoCo DFS joint order: left leg(6), right leg(6), waist(3), head(2), left arm(7), right arm(7)
++    csv_header: ClassVar[List[str]] = [
++        "Frame",
++        "root_translateX", "root_translateY", "root_translateZ",
++        "root_rotateX", "root_rotateY", "root_rotateZ",
++        "left_hip_pitch_joint_dof", "left_hip_roll_joint_dof", "left_hip_yaw_joint_dof",
++        "left_knee_joint_dof", "left_ankle_pitch_joint_dof", "left_ankle_roll_joint_dof",
++        "right_hip_pitch_joint_dof", "right_hip_roll_joint_dof", "right_hip_yaw_joint_dof",
++        "right_knee_joint_dof", "right_ankle_pitch_joint_dof", "right_ankle_roll_joint_dof",
++        "waist_yaw_joint_dof", "waist_roll_joint_dof", "waist_pitch_joint_dof",
++        "head_yaw_joint_dof", "head_pitch_joint_dof",
++        "left_shoulder_pitch_joint_dof", "left_shoulder_roll_joint_dof",
++        "left_shoulder_yaw_joint_dof", "left_elbow_joint_dof",
++        "left_wrist_yaw_joint_dof", "left_wrist_pitch_joint_dof", "left_wrist_roll_joint_dof",
++        "right_shoulder_pitch_joint_dof", "right_shoulder_roll_joint_dof",
++        "right_shoulder_yaw_joint_dof", "right_elbow_joint_dof",
++        "right_wrist_yaw_joint_dof", "right_wrist_pitch_joint_dof", "right_wrist_roll_joint_dof"]
++
++    def to_anim_frame(self, csv_row: np.ndarray) -> np.ndarray:
++        num_joint_dofs = csv_row.shape[0] - 1
++        anim_row = np.zeros(num_joint_dofs + 1, dtype=np.float32)
++        anim_row[0:3] = csv_row[1:4] * 0.01
++        euler = np.deg2rad(csv_row[4:7])
++        quat = wp.quat_rpy(euler[0], euler[1], euler[2])
++        anim_row[3:7] = quat
++        anim_row[7:] = np.deg2rad(csv_row[7:])
++        return anim_row
++
++    def to_csv_row(self, frame_idx: int, anim_row: np.ndarray) -> List[float]:
++        t = wp.vec3(*anim_row[0:3]) * 100.0
++        q = wp.quat(*anim_row[3:7])
++        euler = R.from_quat([q[0], q[1], q[2], q[3]]).as_euler("xyz", degrees=True)
++        row = [frame_idx, t[0], t[1], t[2], euler[0], euler[1], euler[2]]
++        row.extend(np.rad2deg(anim_row[7:]))
++        return row
++
++
+ def load_csv(file_path: str, fps: float = 120.0, csv_config: RobotCSVConfig = UnitreeG129DOF_CSVConfig()) -> CSVAnimationBuffer:
+     """
+     Load a robot motion CSV file into a ``CSVAnimationBuffer``.
+diff --git a/soma_retargeter/pipelines/feet_stabilizer.py b/soma_retargeter/pipelines/feet_stabilizer.py
+index 50862b7..a4931cb 100644
+--- a/soma_retargeter/pipelines/feet_stabilizer.py
++++ b/soma_retargeter/pipelines/feet_stabilizer.py
+@@ -32,24 +32,29 @@ class FeetStabilizer:
+             self.robot_builder = newton.ModelBuilder()
+             self.robot_builder.add_mjcf(
+                 newton.utils.download_asset("unitree_g1") / "mjcf/g1_29dof_rev_1_0.xml")
++        elif self.robot_type == 'limx_hu_d04':
++            from pathlib import Path
++            _hu_d04_mjcf = Path(__file__).resolve().parent.parent.parent / "assets/robots/limx_hu_d04/mjcf/hu_d04.xml"
++            self.robot_builder = newton.ModelBuilder()
++            self.robot_builder.add_mjcf(str(_hu_d04_mjcf))
++        else:
++            raise ValueError(f"[ERROR]: Unknown robot type {self.robot_type}")
+ 
+-            self.num_body_count = self.robot_builder.body_count
+-            self.ik_model = self._build_model(1)
++        self.num_body_count = self.robot_builder.body_count
++        self.ik_model = self._build_model(1)
+ 
+-            body_names = [newton_utils.get_name_from_label(label) for label in self.robot_builder.body_label]
+-            self.effector_mapped_indices = [body_names.index(body_name) for (body_name, _) in self.effectors.items()]
+-            self.effector_weights = [wp.vec2(*tr_weights) for (_, tr_weights) in self.effectors.items()]
+-            effector_parent_indices = [self.robot_builder.joint_parent[idx] for idx in self.effector_mapped_indices]
++        body_names = [newton_utils.get_name_from_label(label) for label in self.robot_builder.body_label]
++        self.effector_mapped_indices = [body_names.index(body_name) for (body_name, _) in self.effectors.items()]
++        self.effector_weights = [wp.vec2(*tr_weights) for (_, tr_weights) in self.effectors.items()]
++        effector_parent_indices = [self.robot_builder.joint_parent[idx] for idx in self.effector_mapped_indices]
+ 
+-            self.pelvis_idx = self.effector_mapped_indices[self.ik_root]
+-            self.two_bone_ik_chains = wp.array2d([[self.effector_mapped_indices[i] for i in limb[_LIMB_DATA_IDX_EFFECTOR_INDICES]] for limb in self.ik_limb_data], dtype=wp.int32)
+-            self.two_bone_ik_chain_parent = wp.array([effector_parent_indices[limb[_LIMB_DATA_IDX_EFFECTOR_INDICES][0]] for limb in self.ik_limb_data], dtype=wp.int32)
+-            self.two_bone_ik_hint_references = wp.array([self.effector_mapped_indices[limb[_LIMB_DATA_IDX_HINT_REF]] for limb in self.ik_limb_data], dtype=wp.int32)
+-            self.two_bone_ik_hint_offsets = wp.array([limb[_LIMB_DATA_IDX_HINT_OFFSET] for limb in self.ik_limb_data], dtype=wp.vec3)
++        self.pelvis_idx = self.effector_mapped_indices[self.ik_root]
++        self.two_bone_ik_chains = wp.array2d([[self.effector_mapped_indices[i] for i in limb[_LIMB_DATA_IDX_EFFECTOR_INDICES]] for limb in self.ik_limb_data], dtype=wp.int32)
++        self.two_bone_ik_chain_parent = wp.array([effector_parent_indices[limb[_LIMB_DATA_IDX_EFFECTOR_INDICES][0]] for limb in self.ik_limb_data], dtype=wp.int32)
++        self.two_bone_ik_hint_references = wp.array([self.effector_mapped_indices[limb[_LIMB_DATA_IDX_HINT_REF]] for limb in self.ik_limb_data], dtype=wp.int32)
++        self.two_bone_ik_hint_offsets = wp.array([limb[_LIMB_DATA_IDX_HINT_OFFSET] for limb in self.ik_limb_data], dtype=wp.vec3)
+ 
+-            self.num_envs = -1
+-        else:
+-            raise ValueError(f"[ERROR]: Unknown robot type {self.robot_type}")
++        self.num_envs = -1
+ 
+     def setup_num_envs(self, num_envs):
+         """
+diff --git a/soma_retargeter/pipelines/newton_pipeline.py b/soma_retargeter/pipelines/newton_pipeline.py
+index 53e1207..f35acd2 100644
+--- a/soma_retargeter/pipelines/newton_pipeline.py
++++ b/soma_retargeter/pipelines/newton_pipeline.py
+@@ -69,54 +69,61 @@ class NewtonPipeline:
+         self.smooth_joint_filter_coord_masks = None
+         self.joint_limit_clamper = None
+ 
++        # Load robot MJCF based on target type
+         if (self.target_type == pipeline_utils.TargetType.UNITREE_G1):
+             self.robot_builder = newton.ModelBuilder()
+             self.robot_builder.add_mjcf(
+                 newton.utils.download_asset("unitree_g1") / "mjcf/g1_29dof_rev_1_0.xml")
+-
+-            self.human_robot_scaler = HumanToRobotScaler(
+-                skeleton, retargeter_config['model_height'], io_utils.get_config_file(retargeter_config['human_robot_scaler_config']))
+-
+-            self.num_body_count = self.robot_builder.body_count
+-            self.num_dofs = self.robot_builder.joint_dof_count
+-            self.ik_model = self._build_model(1)
+-
+-            (
+-                self.mapped_joints,
+-                self.mapped_joint_indices,
+-                self.mapped_body_link_pos_data,
+-                self.mapped_body_link_rot_data
+-            ) = self._build_target_mapping(
+-                self.ik_model,
+-                self.human_robot_scaler.skeleton,
+-                retargeter_config)
+-
+-            smooth_joint_filter_objective_body_masks = retargeter_config.get('smooth_joint_filter_objective_body_masks', None)
+-            if smooth_joint_filter_objective_body_masks is not None:
+-                self.smooth_joint_filter_coord_masks = newton_utils.create_joint_coord_masks(
+-                    self.ik_model, smooth_joint_filter_objective_body_masks, 0.0)
+-
+-            effector_names = self.human_robot_scaler.effector_names()
+-            self.target_effector_indices = [effector_names.index(name) for name in self.mapped_joints]
+-            self.feet_effector_indices = [
+-                self.mapped_joints.index("LeftFoot"),
+-                self.mapped_joints.index("RightFoot")]
+-
+-            self.feet_stabilizer = FeetStabilizer(io_utils.get_config_file(retargeter_config['feet_stabilizer_config']))
+-            self.joint_limit_clamper = JointLimitClamper(self.ik_model)
+-
+-            self.initialization_pose = None
+-            self.num_initialization_frames = 0
+-            self.num_stabilization_frames = 0
+-            if (retargeter_config['initialization_pose']):
+-                init_skel, init_anim = bvh_utils.load_bvh(io_utils.get_config_file(retargeter_config['initialization_pose']))
+-                self.initialization_pose = SkeletonInstance(init_skel, [0, 0, 0], wp.transform_identity())
+-                self.initialization_pose.set_local_transforms(init_anim.get_local_transforms(0))
+-                self.num_initialization_frames = retargeter_config.get('num_initialization_frames', _DEFAULT_NUM_INITIALIZATION_FRAMES)
+-                self.num_stabilization_frames = retargeter_config.get('num_stabilization_frames', _DEFAULT_NUM_STABILIZATION_FRAMES)
++        elif (self.target_type == pipeline_utils.TargetType.LIMX_HU_D04):
++            from pathlib import Path
++            _hu_d04_mjcf = Path(__file__).resolve().parent.parent.parent / "assets/robots/limx_hu_d04/mjcf/hu_d04.xml"
++            self.robot_builder = newton.ModelBuilder()
++            self.robot_builder.add_mjcf(str(_hu_d04_mjcf))
+         else:
+             raise ValueError("Unsupported robot type.")
+ 
++        # Common initialization for all robot types
++        self.human_robot_scaler = HumanToRobotScaler(
++            skeleton, retargeter_config['model_height'], io_utils.get_config_file(retargeter_config['human_robot_scaler_config']))
++
++        self.num_body_count = self.robot_builder.body_count
++        self.num_dofs = self.robot_builder.joint_dof_count
++        self.ik_model = self._build_model(1)
++
++        (
++            self.mapped_joints,
++            self.mapped_joint_indices,
++            self.mapped_body_link_pos_data,
++            self.mapped_body_link_rot_data
++        ) = self._build_target_mapping(
++            self.ik_model,
++            self.human_robot_scaler.skeleton,
++            retargeter_config)
++
++        smooth_joint_filter_objective_body_masks = retargeter_config.get('smooth_joint_filter_objective_body_masks', None)
++        if smooth_joint_filter_objective_body_masks is not None:
++            self.smooth_joint_filter_coord_masks = newton_utils.create_joint_coord_masks(
++                self.ik_model, smooth_joint_filter_objective_body_masks, 0.0)
++
++        effector_names = self.human_robot_scaler.effector_names()
++        self.target_effector_indices = [effector_names.index(name) for name in self.mapped_joints]
++        self.feet_effector_indices = [
++            self.mapped_joints.index("LeftFoot"),
++            self.mapped_joints.index("RightFoot")]
++
++        self.feet_stabilizer = FeetStabilizer(io_utils.get_config_file(retargeter_config['feet_stabilizer_config']))
++        self.joint_limit_clamper = JointLimitClamper(self.ik_model)
++
++        self.initialization_pose = None
++        self.num_initialization_frames = 0
++        self.num_stabilization_frames = 0
++        if (retargeter_config['initialization_pose']):
++            init_skel, init_anim = bvh_utils.load_bvh(io_utils.get_config_file(retargeter_config['initialization_pose']))
++            self.initialization_pose = SkeletonInstance(init_skel, [0, 0, 0], wp.transform_identity())
++            self.initialization_pose.set_local_transforms(init_anim.get_local_transforms(0))
++            self.num_initialization_frames = retargeter_config.get('num_initialization_frames', _DEFAULT_NUM_INITIALIZATION_FRAMES)
++            self.num_stabilization_frames = retargeter_config.get('num_stabilization_frames', _DEFAULT_NUM_STABILIZATION_FRAMES)
++
+     def clear(self):
+         """
+         Clear all accumulated input motions and reset internal state.
+diff --git a/soma_retargeter/pipelines/utils.py b/soma_retargeter/pipelines/utils.py
+index a204cd1..6f0bb4b 100644
+--- a/soma_retargeter/pipelines/utils.py
++++ b/soma_retargeter/pipelines/utils.py
+@@ -15,6 +15,7 @@ class SourceType(IntEnum):
+ class TargetType(IntEnum):
+     """Enumeration of supported target model types."""
+     UNITREE_G1 = auto()
++    LIMX_HU_D04 = auto()
+ 
+ _SOURCE_TYPE_TO_STR = {
+     SourceType.SOMA : "soma"
+@@ -22,7 +23,8 @@ _SOURCE_TYPE_TO_STR = {
+ _STR_TO_SOURCE_TYPE = {s : t for t, s in _SOURCE_TYPE_TO_STR.items()}
+ 
+ _TARGET_TYPE_TO_STR = {
+-    TargetType.UNITREE_G1 : "unitree_g1"
++    TargetType.UNITREE_G1 : "unitree_g1",
++    TargetType.LIMX_HU_D04 : "limx_hu_d04",
+ }
+ _STR_TO_TARGET_TYPE = {s : t for t, s in _TARGET_TYPE_TO_STR.items()}
+ 
+@@ -131,14 +133,21 @@ def get_retargeter_config(source: SourceType, target: TargetType) -> dict:
+     Raises:
+         ValueError: If the source or target type is not supported.
+     """
+-    if target != TargetType.UNITREE_G1:
+-        raise ValueError(f"Unknown target type [{target}].")
+-
+-    if source == SourceType.SOMA:
+-        filename = 'soma_to_g1_retargeter_config.json'
++    if target == TargetType.UNITREE_G1:
++        config_dir = 'unitree_g1'
++        if source == SourceType.SOMA:
++            filename = 'soma_to_g1_retargeter_config.json'
++        else:
++            raise ValueError(f"Unknown source type [{source}] for target [{target}].")
++    elif target == TargetType.LIMX_HU_D04:
++        config_dir = 'limx_hu_d04'
++        if source == SourceType.SOMA:
++            filename = 'soma_to_hu_d04_retargeter_config.json'
++        else:
++            raise ValueError(f"Unknown source type [{source}] for target [{target}].")
+     else:
+-        raise ValueError(f"Unknown source type [{source}] for target [{target}].")
++        raise ValueError(f"Unknown target type [{target}].")
+ 
+     return io_utils.load_json(
+-        io_utils.get_config_file('unitree_g1', filename)
++        io_utils.get_config_file(config_dir, filename)
+     )
