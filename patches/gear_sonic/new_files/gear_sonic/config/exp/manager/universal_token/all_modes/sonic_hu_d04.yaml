@@ -14,7 +14,7 @@ defaults:
   - override /manager_env/observations/policy: local_dir_hist
   - override /manager_env/observations/critic: privileged_mf_hist
   - override /manager_env/events: tracking/level0_4
-  - override /manager_env/terminations: tracking/base_adaptive_strict_ori_foot_xyz
+  - override /manager_env/terminations: tracking/base_adaptive_strict_ori_hu_d04
   - override /manager_env/rewards: tracking/base_5point_local_feet_acc
 
 use_manager_env: true
@@ -42,6 +42,16 @@ manager_env:
   rewards:
     feet_acc:
       weight: -2.5e-6
+    # HU_D04 is ~1.10x taller than G1 — scale position-kernel stds proportionally
+    tracking_vr_5point_local:
+      params:
+        std: 0.11
+    tracking_anchor_pos:
+      params:
+        std: 0.33
+    # HU_D04 has 31 DoF vs G1's 23 — scale per-unit L2 penalty so total matches G1 regime
+    action_rate_l2:
+      weight: -0.074
     # Override body names for anti-shake reward if present
     anti_shake_ang_vel:
       params:
@@ -67,8 +77,8 @@ manager_env:
         - "left_wrist_roll_link"
         - "right_wrist_roll_link"
         - "waist_pitch_link"
-      reward_point_body: ["waist_pitch_link", "left_wrist_roll_link", "right_wrist_roll_link"]
-      reward_point_body_offset: [[0.0, 0.0, 0.5], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+      reward_point_body: ["waist_pitch_link", "left_wrist_roll_link", "right_wrist_roll_link", "left_ankle_roll_link", "right_ankle_roll_link"]
+      reward_point_body_offset: [[0.0, 0.0, 0.5], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
       body_names:
         - "base_link"
         - "left_hip_roll_link"
@@ -108,7 +118,7 @@ algo:
     num_steps_per_env: 24
     use_clampped_std: true
     std_clamp_min: 0.001
-    std_clamp_max: 0.5
+    std_clamp_max: 0.10
     max_grad_norm: 0.1
     actor:
       backbone:

@@ -22,17 +22,20 @@ ARMATURE_SHOULDER_ELBOW = 0.000141873 * 25.0**2  # = 0.08867063
 # Wrist/Head: rotor mass = 0.000019308 kg, gear ratio = 28.17
 ARMATURE_WRIST_HEAD = 0.000019308 * 28.17**2  # = 0.01532178
 
-# PD gain computation (same formula as H2/G1)
+# PD gain computation
+# HU_D04 tuning: keep stiffness high for tip resistance; bump damping ratio
+# to 4.0 so the saturated regime is well-damped (less oscillation when at torque cap).
 NATURAL_FREQ = 10 * 2.0 * 3.1415926535  # 10 Hz
-DAMPING_RATIO = 2.0
+NATURAL_FREQ_ANKLE_WAIST = 10 * 2.0 * 3.1415926535  # back to 10 Hz (high K for tip resistance)
+DAMPING_RATIO = 4.0  # increased from 2.0 — more damping = less tip oscillation
 
 STIFFNESS_HIP_KNEE = ARMATURE_HIP_KNEE * NATURAL_FREQ**2
-STIFFNESS_ANKLE_WAIST = ARMATURE_ANKLE_WAIST * NATURAL_FREQ**2
+STIFFNESS_ANKLE_WAIST = ARMATURE_ANKLE_WAIST * NATURAL_FREQ_ANKLE_WAIST**2
 STIFFNESS_SHOULDER_ELBOW = ARMATURE_SHOULDER_ELBOW * NATURAL_FREQ**2
 STIFFNESS_WRIST_HEAD = ARMATURE_WRIST_HEAD * NATURAL_FREQ**2
 
 DAMPING_HIP_KNEE = 2.0 * DAMPING_RATIO * ARMATURE_HIP_KNEE * NATURAL_FREQ
-DAMPING_ANKLE_WAIST = 2.0 * DAMPING_RATIO * ARMATURE_ANKLE_WAIST * NATURAL_FREQ
+DAMPING_ANKLE_WAIST = 2.0 * DAMPING_RATIO * ARMATURE_ANKLE_WAIST * NATURAL_FREQ_ANKLE_WAIST
 DAMPING_SHOULDER_ELBOW = 2.0 * DAMPING_RATIO * ARMATURE_SHOULDER_ELBOW * NATURAL_FREQ
 DAMPING_WRIST_HEAD = 2.0 * DAMPING_RATIO * ARMATURE_WRIST_HEAD * NATURAL_FREQ
 
@@ -264,16 +267,19 @@ HU_D04_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 1.0),
+        # HU_D04-tuned crouched ready-stance: legs bent (G1-like), arms bent FORWARD.
+        # Shoulder_pitch and elbow signs are FLIPPED from G1 because HU_D04's joint axes
+        # are opposite (+pitch on HU_D04 rotates arm backward, not forward like G1).
+        pos=(0.0, 0.0, 0.87),
         joint_pos={
             ".*_hip_pitch_joint": -0.312,
             ".*_knee_joint": 0.669,
             ".*_ankle_pitch_joint": -0.363,
-            ".*_elbow_joint": 0.6,
+            ".*_elbow_joint": -0.6,              # flipped from G1's +0.6
             "left_shoulder_roll_joint": 0.2,
-            "left_shoulder_pitch_joint": 0.2,
+            "left_shoulder_pitch_joint": -0.2,   # flipped from G1's +0.2
             "right_shoulder_roll_joint": -0.2,
-            "right_shoulder_pitch_joint": 0.2,
+            "right_shoulder_pitch_joint": -0.2,  # flipped from G1's +0.2
         },
         joint_vel={".*": 0.0},
     ),
@@ -293,7 +299,7 @@ HU_D04_CFG = ArticulationCfg(
             armature=ARMATURE_HIP_KNEE,
         ),
         "feet": ImplicitActuatorCfg(
-            effort_limit_sim=42.0,
+            effort_limit_sim=42.0,  # hardware spec from MJCF ctrlrange
             velocity_limit_sim=13.6,
             joint_names_expr=[".*_ankle_pitch_joint", ".*_ankle_roll_joint"],
             stiffness=STIFFNESS_ANKLE_WAIST,
@@ -301,7 +307,7 @@ HU_D04_CFG = ArticulationCfg(
             armature=ARMATURE_ANKLE_WAIST,
         ),
         "waist": ImplicitActuatorCfg(
-            effort_limit_sim=42.0,
+            effort_limit_sim=42.0,  # hardware spec from MJCF ctrlrange
             velocity_limit_sim=13.6,
             joint_names_expr=["waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint"],
             stiffness=STIFFNESS_ANKLE_WAIST,
