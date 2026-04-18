@@ -2,6 +2,27 @@
 
 Training [GEAR-SONIC](https://github.com/NVlabs/GR00T-WholeBodyControl) whole-body control on the [LimX HU_D04](https://github.com/limxdynamics/humanoid-description) humanoid robot (31 DOF) with 3-point PICO VR controller teleoperation.
 
+## Quick start on a Vulkan-capable training box
+
+The retargeted training dataset (102,506 PKLs, 6.7 GB) is on S3 at
+`s3://safesentinel-inc/hu_d04_motions/robot_filtered.tar.gz`. To train:
+
+```bash
+# On a pod with a full NVIDIA driver (NOT compute-only), e.g. RunPod
+# "Isaac Sim 4.5" template or Lambda Labs GPU instance:
+
+curl -sL https://raw.githubusercontent.com/safe-sentinel-co/hu_d04_sonic_setup/main/remote_training_setup.sh -o setup.sh
+chmod +x setup.sh
+export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
+export N_GPUS=auto NUM_ENVS=4096       # NUM_ENVS=2048 for 24GB GPUs
+bash setup.sh smoke                    # 5-iter smoke test (~5 min)
+bash setup.sh train                    # full training (multi-day, nohup)
+```
+
+The `smoke` mode installs everything, downloads the dataset, and runs a 5-iteration test.
+`train` installs (if needed) and launches the full run in the background.
+See [training_from_retargeted.md](training_from_retargeted.md) for the manual step-by-step guide.
+
 ## Hardware Requirements
 
 ### GPU
