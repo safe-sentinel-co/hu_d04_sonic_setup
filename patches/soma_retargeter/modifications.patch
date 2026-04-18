@@ -292,3 +292,18 @@ index a204cd1..6f0bb4b 100644
 -        io_utils.get_config_file('unitree_g1', filename)
 +        io_utils.get_config_file(config_dir, filename)
      )
+diff --git a/soma_retargeter/utils/space_conversion_utils.py b/soma_retargeter/utils/space_conversion_utils.py
+index ee12693..f7ab79e 100644
+--- a/soma_retargeter/utils/space_conversion_utils.py
++++ b/soma_retargeter/utils/space_conversion_utils.py
+@@ -58,7 +58,9 @@ class SpaceConverter:
+     """
+     def __init__(self, facing_direction: FacingDirectionType):
+         if facing_direction == FacingDirectionType.MUJOCO:
+-            self.converter = wp.quat_from_axis_angle(wp.vec3(1, 0, 0), wp.radians(90.0))
++            # 120° around (1,1,1)/sqrt(3) = axis-cycle X->Y->Z->X. Correctly
++            # maps SOMA (X-left, Y-up, Z-fwd) -> MuJoCo (X-fwd, Y-left, Z-up).
++            self.converter = wp.quat(0.5, 0.5, 0.5, 0.5)
+         elif facing_direction == FacingDirectionType.MAYA:
+             q1 = wp.quat_from_axis_angle(wp.vec3(0, 1, 0), wp.radians(90.0))
+             q2 = wp.quat_from_axis_angle(wp.vec3(0, 0, 1), wp.radians(90.0))
