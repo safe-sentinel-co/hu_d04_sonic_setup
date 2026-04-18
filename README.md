@@ -21,7 +21,7 @@ bash setup.sh train                    # full training (multi-day, nohup)
 
 The `smoke` mode installs everything, downloads the dataset, and runs a 5-iteration test.
 `train` installs (if needed) and launches the full run in the background.
-See [training_from_retargeted.md](training_from_retargeted.md) for the manual step-by-step guide.
+See [**train_from_ds.md**](train_from_ds.md) for the full guide (pod requirements, GPU sizing, manual step-by-step, troubleshooting).
 
 ## Hardware Requirements
 
