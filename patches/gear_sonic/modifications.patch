@@ -123,14 +123,14 @@ index 078f2fc..a18a1f3 100644
      """Load qpos [T, D] from CSV."""
      import pandas as pd
 diff --git a/gear_sonic/utils/motion_lib/motion_lib_base.py b/gear_sonic/utils/motion_lib/motion_lib_base.py
-index a756cd3..6f49fef 100644
+index a756cd3..cb70132 100644
 --- a/gear_sonic/utils/motion_lib/motion_lib_base.py
 +++ b/gear_sonic/utils/motion_lib/motion_lib_base.py
 @@ -1609,6 +1609,131 @@ class MotionLibBase:
              self.body_lin_vel_w_full = self.body_lin_vel_w[:, self.m_cfg.mujoco_to_isaaclab_body]
              self.body_ang_vel_w_full = self.body_ang_vel_w[:, self.m_cfg.mujoco_to_isaaclab_body]
  
-+            # STATIC PER-BODY OFFSET FROM PRECOMPUTED JSON (no mujoco runtime needed)
++            # STATIC PER-BODY OFFSET FROM PRECOMPUTED JSON (disabled — faulty FK residual)
 +            offset_json = self.m_cfg.get("body_offset_correction_path", None)
 +            if offset_json is not None:
 +                try:
